@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
 
 	. "github.com/chewxy/gorgonia"
@@ -161,13 +163,18 @@ func NewAttn(name string, g *ExprGraph, shape tensor.Shape, t tensor.Dtype) *Att
 }
 
 func (l *Attn) Exp(x *Node) (retVal *Node, err error) {
+	// var wx, do, e *Node
 	var wx, e *Node
 	if wx, err = Mul(l.w, x); err != nil {
 		err = errors.Wrap(err, "wx")
 		return
 	}
 
+	// if do, err = Dropout(wx, 0.3); err != nil {
+	// 	return
+	// }
 	if e, err = l.Fn(wx); err != nil {
+		// if e, err = l.Fn(do); err != nil {
 		return
 	}
 	return Exp(e)
@@ -179,4 +186,13 @@ func (l *Attn) Sum(a, b *Node) (retVal *Node, err error) {
 
 func (l *Attn) Weight(a, sum *Node) (retVal *Node, err error) {
 	return Div(a, sum)
+}
+
+func (l *Attn) GobEncode() (p []byte, err error) {
+	var buf bytes.Buffer
+	encoder := gob.NewEncoder(&buf)
+	if err = encoder.Encode(l.w.Value()); err != nil {
+		return
+	}
+	return buf.Bytes(), nil
 }

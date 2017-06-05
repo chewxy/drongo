@@ -2,9 +2,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"runtime/pprof"
 
 	"github.com/chewxy/gorgonia"
 	"github.com/chewxy/gorgonia/tensor"
@@ -21,6 +22,7 @@ const (
 
 func main() {
 	flag.Parse()
+	rand.Seed(1337)
 	if err := loadModels(); err != nil {
 		log.Fatal(err)
 	}
@@ -33,30 +35,43 @@ func main() {
 
 	trainingLen := int(0.85 * float64(len(examples)))
 	trainingSet := make([]example, trainingLen)
+	validateSet := make([]example, len(examples)-trainingLen)
 	copy(trainingSet, examples)
+	copy(validateSet, examples[trainingLen:])
+
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	emb := depModel.WordEmbeddings()
-	m := NewModel(emb.Shape(), tensor.Float64, MAXQUERY, int(MAXTARGETS))
+	m := NewModel(emb.Shape(), tensor.Float32, MAXQUERY, int(MAXTARGETS))
 	m.c = depModel.Corpus()
 	m.SetEmbed(emb)
-	solver := gorgonia.NewAdamSolver(gorgonia.WithClip(3.0), gorgonia.WithLearnRate(0.0005), gorgonia.WithL2Reg(0.000001))
-	for i := 0; i < 300; i++ {
+	solver := gorgonia.NewAdaGradSolver(gorgonia.WithClip(1.0), gorgonia.WithL2Reg(0.000001))
+	for i := 0; i < 20; i++ {
 		if err := Train(i, m, solver, trainingSet); err != nil {
 			log.Fatalf("Error while training during iteration %d: %+v", i, err)
 		}
 		shuffleExamples(trainingSet)
+
+		if i%10 == 0 {
+			acc, err := checkAcc(m, validateSet)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("Epoch %d. Accuracy: %f | %v \n", i, acc, len(validateSet))
+		}
 	}
 
-	t0, err := m.Pred(lib001)
-	if err != nil {
-		log.Fatal(err)
-	}
+	c := newCtx(m)
+	defer c.Close()
+	c.Run()
 
-	t1, err := m.Pred(con001)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("T0: %v | T1: %v\n", t0, t1)
 }
 
 func Train(epoch int, m *Model, solver gorgonia.Solver, trainingSet []example) (err error) {
@@ -70,6 +85,20 @@ func Train(epoch int, m *Model, solver gorgonia.Solver, trainingSet []example) (
 	}
 	log.Printf("Epoch %d. Avg Cost %f", epoch, averageCosts(costs))
 	return nil
+}
+
+func checkAcc(m *Model, validationset []example) (acc float64, err error) {
+	var correct float64
+	for _, ex := range validationset {
+		var class Target
+		if class, err = m.PredPreparsed(ex.dep); err != nil {
+			return
+		}
+		if class == ex.target {
+			correct++
+		}
+	}
+	return correct / float64(len(validationset)), nil
 }
 
 func shuffleExamples(a []example) {

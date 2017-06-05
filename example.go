@@ -18,6 +18,19 @@ const (
 	MAXTARGETS
 )
 
+func (t Target) String() string {
+	switch t {
+	case Neutral:
+		return "Neutral"
+	case Liberal:
+		return "Liberal"
+	case Conservative:
+		return "Conservative"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 type example struct {
 	dep    *lingo.Dependency
 	target Target

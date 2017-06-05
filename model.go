@@ -183,19 +183,13 @@ func (m *Model) Train(solver Solver, pair example) (c float64, err error) {
 		c = v.Data().(float64)
 	}
 
-	machine.UnbindAll()
+	// machine.UnbindAll()
 
 	err = solver.Step(m.Learnables())
 	return
 }
 
-func (m *Model) Pred(s string) (class Target, err error) {
-	var dep *lingo.Dependency
-	if dep, err = pipeline(s, strings.NewReader(s)); err != nil {
-		err = errors.Wrap(err, "Basic NLP pipeline failed")
-		return
-	}
-
+func (m *Model) PredPreparsed(dep *lingo.Dependency) (class Target, err error) {
 	var prob *Node
 	if prob, err = m.Fwd(dep.AnnotatedSentence); err != nil {
 		err = errors.Wrap(err, "Fwd failed")
@@ -210,8 +204,18 @@ func (m *Model) Pred(s string) (class Target, err error) {
 	val := prob.Value().(tensor.Tensor)
 
 	var t tensor.Tensor
-	if t, err = tensor.Argmax(val, 0); err != nil {
+	if t, err = tensor.Argmin(val, 0); err != nil {
 		return
 	}
 	return Target(t.ScalarValue().(int)), nil
+
+}
+
+func (m *Model) Pred(s string) (class Target, err error) {
+	var dep *lingo.Dependency
+	if dep, err = pipeline(s, strings.NewReader(s)); err != nil {
+		err = errors.Wrap(err, "Basic NLP pipeline failed")
+		return
+	}
+	return m.PredPreparsed(dep)
 }
