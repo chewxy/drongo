@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/ioutil"
 	"log"
 	"math/rand"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/chewxy/gorgonia/tensor"
 	"github.com/chewxy/lingo"
 	"github.com/chewxy/lingo/corpus"
+	"github.com/pkg/errors"
 )
 
 type Model struct {
@@ -20,7 +22,7 @@ type Model struct {
 	emb   *Node   // (n, d) matrix. n = vocabulary size; d = dims
 	input *Node   // (d) vector. vector sliced from emb
 	l0    *Banana // (d, 2d) matrices. one layer GRU; 2d = 2x d
-	a     *Attn   // (d, |q|) matrix. attention layer: |q| = max sentence length
+	a     *Attn   // (d, d) matrix. attention layer:
 	p     *Node   // (cat, d) matrixweights for softmax
 
 	// dummy
@@ -31,13 +33,13 @@ func NewModel(embShape tensor.Shape, t tensor.Dtype, q, cats int) *Model {
 	d := embShape[1]
 
 	g := NewGraph()
-	emb := NewMatrix(g, t, WithShape(embShape...))
+	emb := NewMatrix(g, t, WithShape(embShape...), WithName("WordEmbedding"))
 	in := Must(Slice(emb, S(0))) // dummy slice
 	l0 := NewGRU("gru-0", g, tensor.Shape{d, 2 * d}, t)
-	attn := NewAttn("attention", g, tensor.Shape{d, q}, t)
-	p := NewMatrix(g, t, WithShape(cats, d), WithInit(GlorotN(1)))
+	attn := NewAttn("attention", g, tensor.Shape{d, d}, t)
+	p := NewMatrix(g, t, WithShape(cats, d), WithInit(GlorotN(1)), WithName("FinalLayer"))
 
-	prev := NewVector(g, t, WithShape(d), WithInit(Zeroes()))
+	prev := NewVector(g, t, WithShape(d), WithInit(Zeroes()), WithName("DummyPrev"))
 
 	return &Model{
 		g:     g,
@@ -122,10 +124,10 @@ func (m *Model) CostFn(s lingo.AnnotatedSentence, target Target) (cost *Node, er
 			return
 		}
 
-		if ctx, err = Mul(weight, h); err != nil {
+		if ctx, err = HadamardProd(weight, h); err != nil {
+			ioutil.WriteFile("error.dot", []byte(h.RestrictedToDot(2, 9)), 0644)
 			return
 		}
-		log.Printf("ctx %v", ctx.Shape())
 
 		if context == nil {
 			context = ctx
@@ -135,10 +137,10 @@ func (m *Model) CostFn(s lingo.AnnotatedSentence, target Target) (cost *Node, er
 			return
 		}
 	}
-	log.Printf("context %v", context.Shape())
 
 	var prob *Node
-	if prob, err = Mul(context, m.p); err != nil {
+	if prob, err = Mul(m.p, context); err != nil {
+		err = errors.Wrap(err, "Context Mul")
 		return
 	}
 
@@ -159,8 +161,16 @@ func (m *Model) Train(iter int, solver Solver) (err error) {
 	}
 
 	g = m.g.SubgraphRoots(cost)
+
+	// f, _ := os.OpenFile("LOOOOG", os.O_APPEND|os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	// logger := log.New(f, "", 0)
+
+	// machine := NewLispMachine(g, WithLogger(logger), WithWatchlist(), LogBothDir())
 	machine := NewLispMachine(g)
 	if err = machine.RunAll(); err != nil {
+		if ctxerr, ok := err.(contextualError); ok {
+			ioutil.WriteFile("error.dot", []byte(ctxerr.Node().RestrictedToDot(2, 9)), 0644)
+		}
 		return
 	}
 	machine.UnbindAll()

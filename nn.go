@@ -90,6 +90,7 @@ func (l *Banana) Activate(x *Node) (retVal *Node, err error) {
 	// update gate
 	var wzCat, zt *Node
 	if wzCat, err = Mul(l.wz, cat); err != nil {
+		err = errors.Wrap(err, "wzCat")
 		return
 	}
 	if zt, err = Sigmoid(wzCat); err != nil {
@@ -99,6 +100,7 @@ func (l *Banana) Activate(x *Node) (retVal *Node, err error) {
 	// reset gate
 	var wrCat, rt *Node
 	if wrCat, err = Mul(l.wr, cat); err != nil {
+		err = errors.Wrap(err, "wrCat")
 		return
 	}
 	if rt, err = Sigmoid(wrCat); err != nil {
@@ -116,6 +118,7 @@ func (l *Banana) Activate(x *Node) (retVal *Node, err error) {
 	}
 
 	if wResetCat, err = Mul(l.w, resetCat); err != nil {
+		err = errors.Wrap(err, "wResetCat")
 		return
 	}
 
@@ -153,15 +156,17 @@ func NewAttn(name string, g *ExprGraph, shape tensor.Shape, t tensor.Dtype) *Att
 	return &Attn{
 		g:  g,
 		Fn: Tanh,
-		w:  NewMatrix(g, t, WithShape(shape...), WithInit(GlorotN(1))),
+		w:  NewMatrix(g, t, WithShape(shape...), WithInit(GlorotN(1)), WithName(fmt.Sprintf("%s.w", name))),
 	}
 }
 
 func (l *Attn) Exp(x *Node) (retVal *Node, err error) {
 	var wx, e *Node
 	if wx, err = Mul(l.w, x); err != nil {
+		err = errors.Wrap(err, "wx")
 		return
 	}
+
 	if e, err = l.Fn(wx); err != nil {
 		return
 	}

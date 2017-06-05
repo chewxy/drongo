@@ -8,7 +8,6 @@ import (
 	"github.com/chewxy/lingo/dep"
 	"github.com/chewxy/lingo/lexer"
 	"github.com/chewxy/lingo/pos"
-	"github.com/chewxy/wordnet"
 	"github.com/kljensen/snowball"
 )
 
@@ -25,7 +24,7 @@ const (
 )
 
 func init() {
-	wordnet.Init("model/shared/wordnet")
+	// wordnet.Init("model/shared/wordnet")
 }
 
 type stemmer struct{}
@@ -40,8 +39,8 @@ type fixer struct {
 
 func (fixer) Clusters() (map[string]lingo.Cluster, error) { return clusters, nil }
 func (fixer) Lemmatize(a string, tag lingo.POSTag) ([]string, error) {
-	return wordnet.Lemmatize(a, tag), nil
-	// return nil, nocomp("No Lemmatizer")
+	// return wordnet.Lemmatize(a, tag), nil
+	return nil, nocomp("No Lemmatizer")
 }
 
 func loadModels() (err error) {

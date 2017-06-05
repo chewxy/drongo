@@ -24,10 +24,11 @@ func main() {
 	emb := depModel.WordEmbeddings()
 	m := NewModel(emb.Shape(), tensor.Float64, MAXQUERY, int(MAXTARGETS))
 	m.c = depModel.Corpus()
+	m.SetEmbed(emb)
 	solver := gorgonia.NewAdamSolver()
 	for i := 0; i < 100; i++ {
 		if err := m.Train(i, solver); err != nil {
-			log.Fatalf("Error while training during iteration %d: %v", i, err)
+			log.Fatalf("Error while training during iteration %d: %+v", i, err)
 		}
 	}
 }
