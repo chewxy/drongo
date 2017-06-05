@@ -19,7 +19,7 @@ var (
 
 const (
 	defaultPOSModelLoc = "model/shared/pos_stanfordtags_universalrel.final.model"
-	defaultDepModelLoc = "model/shared/dep_stanfordtags_universalrel.final.model_f32"
+	defaultDepModelLoc = "model/shared/dep_stanfordtags_universalrel.final.model"
 	defaultClusterLoc  = "model/shared/clusters.txt"
 )
 

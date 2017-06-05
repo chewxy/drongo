@@ -49,10 +49,10 @@ func main() {
 	}
 
 	emb := depModel.WordEmbeddings()
-	m := NewModel(emb.Shape(), tensor.Float32, MAXQUERY, int(MAXTARGETS))
+	m := NewModel(emb.Shape(), tensor.Float64, MAXQUERY, int(MAXTARGETS))
 	m.c = depModel.Corpus()
 	m.SetEmbed(emb)
-	solver := gorgonia.NewAdaGradSolver(gorgonia.WithClip(1.0), gorgonia.WithL2Reg(0.000001))
+	solver := gorgonia.NewAdaGradSolver(gorgonia.WithClip(3.0), gorgonia.WithL2Reg(0.000001))
 	for i := 0; i < 20; i++ {
 		if err := Train(i, m, solver, trainingSet); err != nil {
 			log.Fatalf("Error while training during iteration %d: %+v", i, err)
@@ -66,6 +66,14 @@ func main() {
 			}
 			log.Printf("Epoch %d. Accuracy: %f | %v \n", i, acc, len(validateSet))
 		}
+	}
+	if *memprofile != "" {
+		f, err := os.Create(*memprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.WriteHeapProfile(f)
+		f.Close()
 	}
 
 	c := newCtx(m)
