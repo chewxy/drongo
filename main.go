@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	MAXQUERY = 45 // query length of 45 words is max. You can't analyze idiots like Nabokov or James Joyce but those are shitty writers anyway
+	MAXQUERY  = 45 // query length of 45 words is max. You can't analyze idiots like Nabokov or James Joyce but those are shitty writers anyway
+	partition = 0.85
 )
 
 const (
@@ -30,16 +31,10 @@ func main() {
 	if err := loadExamples(); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Everything loaded. Start training")
+	log.Printf("Everything loaded. Start training. %d examples. %d validations", len(examples), len(validates))
 	shuffleExamples(examples)
 	shuffleExamples(examples)
 	shuffleExamples(examples)
-
-	trainingLen := int(0.85 * float64(len(examples)))
-	trainingSet := make([]example, trainingLen)
-	validateSet := make([]example, len(examples)-trainingLen)
-	copy(trainingSet, examples)
-	copy(validateSet, examples[trainingLen:])
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -58,12 +53,12 @@ func main() {
 	for i := 0; i < 200; i++ {
 		var cost float64
 		var err error
-		if cost, err = Train(i, m, solver, trainingSet); err != nil {
+		if cost, err = Train(i, m, solver, examples); err != nil {
 			log.Fatalf("Error while training during iteration %d: %+v", i, err)
 		}
-		shuffleExamples(trainingSet)
+		shuffleExamples(examples)
 
-		acc, f1, con, err := checkAcc(m, validateSet)
+		acc, f1, con, err := checkAcc(m, validates)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -131,13 +126,13 @@ func checkAcc(m *Model, validationset []example) (acc, f1 float64, confusion ten
 
 		truePos := truePosI.(float64)
 		sum1 := sum1I.(float64)
-		prec := truePos / (sum1 + 1e-8)
+		prec := truePos / (sum1 + 1e-4)
 
 		sum0I, _ := sumClasses0.At(int(i))
 		sum0 := sum0I.(float64)
-		recall := truePos / (sum0 + 1e-8)
+		recall := truePos / (sum0 + 1e-4)
 
-		f1 := 2 * (prec * recall) / (prec + recall)
+		f1 := 2 * (prec * recall) / (prec + recall - 1e-8)
 		sumF1s += f1
 	}
 	f1 = sumF1s / float64(MAXTARGETS)

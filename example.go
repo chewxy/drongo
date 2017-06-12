@@ -37,6 +37,7 @@ type example struct {
 }
 
 var examples []example
+var validates []example
 
 func loadExamples() (err error) {
 	var ns, ls, cs []string
@@ -52,32 +53,50 @@ func loadExamples() (err error) {
 		return
 	}
 
-	for _, neutral := range ns {
+	neutrals := make([]example, len(ns))
+	for i, neutral := range ns {
 		dep, err := loadOne(neutral, Neutral)
 		if err != nil {
 			return err
 		}
 		ex := example{dep, Neutral}
-		examples = append(examples, ex)
+
+		neutrals[i] = ex
 	}
 
-	for _, lib := range ls {
+	libs := make([]example, len(ls))
+	for i, lib := range ls {
 		dep, err := loadOne(lib, Liberal)
 		if err != nil {
 			return err
 		}
 		ex := example{dep, Liberal}
-		examples = append(examples, ex)
+		libs[i] = ex
 	}
 
-	for _, con := range cs {
+	cons := make([]example, len(cs))
+	for i, con := range cs {
 		dep, err := loadOne(con, Conservative)
 		if err != nil {
 			return err
 		}
 		ex := example{dep, Conservative}
-		examples = append(examples, ex)
+		cons[i] = ex
 	}
+
+	// build up examples
+	l := int(partition * float64(len(neutrals)))
+	examples = append(examples, neutrals[:l]...)
+	validates = append(validates, neutrals[l:]...)
+
+	l = int(partition * float64(len(libs)))
+	examples = append(examples, libs[:l]...)
+	validates = append(validates, libs[l:]...)
+
+	l = int(partition * float64(len(cons)))
+	examples = append(examples, cons[:l]...)
+	validates = append(validates, cons[l:]...)
+
 	return nil
 }
 
