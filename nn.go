@@ -56,95 +56,97 @@ func (l *FC) Activate(x *Node) (retVal *Node, err error) {
 
 // Banana is a standard GRU node. Geddit?
 type Banana struct {
-	g  *ExprGraph
-	wz *Node
-	wr *Node
-	w  *Node
+	g *ExprGraph
 
-	Name   string // optional name
-	Prev   *Node  // previous hidden, which is an additional input
-	Hidden *Node  // output
+	// weights for mem
+	u *Node
+	w *Node
+	b *Node
+
+	// update gate
+	uz *Node
+	wz *Node
+	bz *Node
+
+	// reset gate
+	ur  *Node
+	wr  *Node
+	br  *Node
+	one *Node
+
+	Name string // optional name
 }
 
-func NewGRU(name string, g *ExprGraph, input tensor.Shape, t tensor.Dtype) *Banana {
-	wz := NewMatrix(g, t, WithShape(input...), WithName(fmt.Sprintf("%v.wz", name)), WithInit(GlorotN(1.0)))
-	wr := NewMatrix(g, t, WithShape(input...), WithName(fmt.Sprintf("%v.wr", name)), WithInit(GlorotN(1.0)))
-	w := NewMatrix(g, t, WithShape(input...), WithName(fmt.Sprintf("%v.w", name)), WithInit(GlorotN(1.0)))
+func NewGRU(name string, g *ExprGraph, inputSize, hiddenSize int, dt tensor.Dtype) *Banana {
+	// standard weights
+	u := NewMatrix(g, dt, WithShape(hiddenSize, hiddenSize), WithName(fmt.Sprintf("%v.u", name)), WithInit(Gaussian(0, 0.08)))
+	w := NewMatrix(g, dt, WithShape(hiddenSize, inputSize), WithName(fmt.Sprintf("%v.w", name)), WithInit(Gaussian(0, 0.08)))
+	b := NewVector(g, dt, WithShape(hiddenSize), WithName(fmt.Sprintf("%v.b", name)), WithInit(Zeroes()))
 
+	// update gate
+	uz := NewMatrix(g, dt, WithShape(hiddenSize, hiddenSize), WithName(fmt.Sprintf("%v.uz", name)), WithInit(Gaussian(0, 0.08)))
+	wz := NewMatrix(g, dt, WithShape(hiddenSize, inputSize), WithName(fmt.Sprintf("%v.wz", name)), WithInit(Gaussian(0, 0.08)))
+	bz := NewVector(g, dt, WithShape(hiddenSize), WithName(fmt.Sprintf("%v.b_uz", name)), WithInit(Zeroes()))
+
+	// reset gate
+	ur := NewMatrix(g, dt, WithShape(hiddenSize, hiddenSize), WithName(fmt.Sprintf("%v.ur", name)), WithInit(Gaussian(0, 0.08)))
+	wr := NewMatrix(g, dt, WithShape(hiddenSize, inputSize), WithName(fmt.Sprintf("%v.wr", name)), WithInit(Gaussian(0, 0.08)))
+	br := NewVector(g, dt, WithShape(hiddenSize), WithName(fmt.Sprintf("%v.bz", name)), WithInit(Zeroes()))
+
+	ones := tensor.Ones(dt, hiddenSize)
+	one := g.Constant(ones)
 	gru := &Banana{
-		g:  g,
+		g: g,
+
+		u: u,
+		w: w,
+		b: b,
+
+		uz: uz,
 		wz: wz,
+		bz: bz,
+
+		ur: ur,
 		wr: wr,
-		w:  w,
+		br: br,
+
+		one: one,
 	}
 	return gru
 }
 
-func (l *Banana) Activate(x *Node) (retVal *Node, err error) {
-	if l.Prev == nil {
-		return nil, errors.Errorf("Expected a previous state")
-	}
-	var cat *Node
-	if cat, err = Concat(0, l.Prev, x); err != nil {
-		return
-	}
-
+func (l *Banana) Activate(x, prev *Node) (retVal *Node, err error) {
 	// update gate
-	var wzCat, zt *Node
-	if wzCat, err = Mul(l.wz, cat); err != nil {
-		err = errors.Wrap(err, "wzCat")
-		return
-	}
-	if zt, err = Sigmoid(wzCat); err != nil {
-		return
-	}
+	// z := Must(Sigmoid(Must(Add(Must(Add(Must(Mul(l.uz, prev)), Must(l.wz, x))), l.bz))))
+	uzh := Must(Mul(l.uz, prev))
+	wzx := Must(Mul(l.wz, x))
+	z := Must(Sigmoid(
+		Must(Add(
+			Must(Add(uzh, wzx)),
+			l.bz))))
 
 	// reset gate
-	var wrCat, rt *Node
-	if wrCat, err = Mul(l.wr, cat); err != nil {
-		err = errors.Wrap(err, "wrCat")
-		return
-	}
-	if rt, err = Sigmoid(wrCat); err != nil {
-		return
-	}
+	// r := Must(Sigmoid(Must(Add(Must(Add(Must(Mul(l.wr, x)), Must(Mul(l.ur, prev)), l.br))))))
+	urh := Must(Mul(l.ur, prev))
+	wrx := Must(Mul(l.wr, x))
+	r := Must(Sigmoid(
+		Must(Add(
+			Must(Add(urh, wrx)),
+			l.br))))
 
-	// hidden gate h~
-	var reset, resetCat, wResetCat, h2 *Node
-	if reset, err = HadamardProd(rt, l.Prev); err != nil {
-		return
-	}
+	// memory for hidden
+	hiddenFilter := Must(Mul(l.u, Must(HadamardProd(r, prev))))
+	wx := Must(Mul(l.w, x))
+	mem := Must(Tanh(
+		Must(Add(
+			Must(Add(hiddenFilter, wx)),
+			l.b))))
 
-	if resetCat, err = Concat(0, reset, x); err != nil {
-		return
-	}
-
-	if wResetCat, err = Mul(l.w, resetCat); err != nil {
-		err = errors.Wrap(err, "wResetCat")
-		return
-	}
-
-	if h2, err = Tanh(wResetCat); err != nil {
-		return
-	}
-
-	dt := l.w.Value().Dtype()
-	oneV := tensor.Ones(dt, zt.Shape()...)
-	one := l.g.Constant(oneV)
-
-	var onemzt, gatePrev, gateh2 *Node
-	if onemzt, err = Sub(one, zt); err != nil {
-		return
-	}
-	if gatePrev, err = HadamardProd(onemzt, l.Prev); err != nil {
-		return
-	}
-	if gateh2, err = HadamardProd(zt, h2); err != nil {
-		return
-	}
-
-	l.Hidden, err = Add(gatePrev, gateh2)
-	return l.Hidden, err
+	omz := Must(Sub(l.one, z))
+	omzh := Must(HadamardProd(omz, prev))
+	upd := Must(HadamardProd(z, mem))
+	retVal = Must(Add(upd, omzh))
+	return
 }
 
 type Attn struct {

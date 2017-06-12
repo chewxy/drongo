@@ -29,6 +29,7 @@ func main() {
 	if err := loadExamples(); err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("Everything loaded. Start training")
 	shuffleExamples(examples)
 	shuffleExamples(examples)
 	shuffleExamples(examples)
@@ -53,7 +54,7 @@ func main() {
 	m.c = depModel.Corpus()
 	m.SetEmbed(emb)
 	solver := gorgonia.NewAdaGradSolver(gorgonia.WithClip(3.0), gorgonia.WithL2Reg(0.000001))
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 200; i++ {
 		if err := Train(i, m, solver, trainingSet); err != nil {
 			log.Fatalf("Error while training during iteration %d: %+v", i, err)
 		}

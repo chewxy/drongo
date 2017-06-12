@@ -11,18 +11,19 @@ import (
 	"github.com/pkg/errors"
 )
 
+var hiddenSizes = []int{100}
+
 type Model struct {
 	// dictionaries and the like
 	c *corpus.Corpus
 
 	// neural network
-	g     *ExprGraph
-	t     tensor.Dtype
-	emb   *Node   // (n, d) matrix. n = vocabulary size; d = dims
-	input *Node   // (d) vector. vector sliced from emb
-	l0    *Banana // (d, 2d) matrices. one layer GRU; 2d = 2x d
-	a     *Attn   // (d, d) matrix. attention layer:
-	p     *Node   // (cat, d) matrixweights for softmax
+	g   *ExprGraph
+	t   tensor.Dtype
+	emb *Node   // (n, d) matrix. n = vocabulary size; d = dims
+	l0  *Banana // (d, 2d) matrices. one layer GRU; 2d = 2x d
+	a   *Attn   // (d, d) matrix. attention layer:
+	p   *Node   // (cat, d) matrixweights for softmax
 
 	// dummy
 	prev *Node
@@ -33,21 +34,19 @@ func NewModel(embShape tensor.Shape, t tensor.Dtype, q, cats int) *Model {
 
 	g := NewGraph()
 	emb := NewMatrix(g, t, WithShape(embShape...), WithName("WordEmbedding"))
-	in := Must(Slice(emb, S(0))) // dummy slice
-	l0 := NewGRU("gru-0", g, tensor.Shape{d, 2 * d}, t)
-	attn := NewAttn("attention", g, tensor.Shape{d, d}, t)
-	p := NewMatrix(g, t, WithShape(cats, d), WithInit(GlorotN(1)), WithName("FinalLayer"))
+	l0 := NewGRU("gru-0", g, d, hiddenSizes[0], t)
+	attn := NewAttn("attention", g, tensor.Shape{hiddenSizes[0], hiddenSizes[0]}, t)
+	p := NewMatrix(g, t, WithShape(cats, hiddenSizes[0]), WithInit(GlorotN(1)), WithName("FinalLayer"))
 
-	prev := NewVector(g, t, WithShape(d), WithInit(Zeroes()), WithName("DummyPrev"))
+	prev := NewVector(g, t, WithShape(hiddenSizes[0]), WithInit(Zeroes()), WithName("DummyPrev"))
 
 	return &Model{
-		g:     g,
-		t:     t,
-		emb:   emb,
-		input: in,
-		l0:    l0,
-		a:     attn,
-		p:     p,
+		g:   g,
+		t:   t,
+		emb: emb,
+		l0:  l0,
+		a:   attn,
+		p:   p,
 
 		prev: prev,
 	}
@@ -72,12 +71,12 @@ func (m *Model) WordID(a *lingo.Annotation) int {
 }
 
 func (m *Model) OneWord(wordID int, prev *Node) (h, e *Node, err error) {
-	if err = UnsafeLet(m.input, S(wordID)); err != nil {
-		return
+	if prev == nil {
+		prev = m.prev
 	}
 
-	m.l0.Prev = prev
-	if h, err = m.l0.Activate(m.input); err != nil {
+	input := Must(Slice(m.emb, S(wordID)))
+	if h, err = m.l0.Activate(input, prev); err != nil {
 		return
 	}
 
@@ -204,7 +203,7 @@ func (m *Model) PredPreparsed(dep *lingo.Dependency) (class Target, err error) {
 	val := prob.Value().(tensor.Tensor)
 
 	var t tensor.Tensor
-	if t, err = tensor.Argmin(val, 0); err != nil {
+	if t, err = tensor.Argmax(val, 0); err != nil {
 		return
 	}
 	return Target(t.ScalarValue().(int)), nil
