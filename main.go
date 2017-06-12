@@ -17,11 +17,6 @@ const (
 	partition = 0.85
 )
 
-const (
-	lib001 = `As usual, then, government intervention into the market caused unintended, undesired consequences, but politicians blame the HMOs instead of the interventions that helped create them.`
-	con001 = `They have transferred control of elections to the government bureaucracy they fund and control, created complex ballot-access laws, switched to the Australian ballot to weaken local parties, outlawed corporate contributions, and imposed contribution limits to make it hard for opponents to fund a credible challenge.`
-)
-
 func main() {
 	flag.Parse()
 	rand.Seed(1337)
@@ -32,8 +27,6 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Printf("Everything loaded. Start training. %d examples. %d validations", len(examples), len(validates))
-	shuffleExamples(examples)
-	shuffleExamples(examples)
 	shuffleExamples(examples)
 
 	if *cpuprofile != "" {
@@ -46,7 +39,7 @@ func main() {
 	}
 
 	emb := depModel.WordEmbeddings()
-	m := NewModel(emb.Shape(), tensor.Float64, MAXQUERY, int(MAXTARGETS))
+	m := NewModel(emb.Shape(), Float, MAXQUERY, int(MAXTARGETS))
 	m.c = depModel.Corpus()
 	m.SetEmbed(emb)
 	solver := gorgonia.NewAdaGradSolver(gorgonia.WithClip(3.0), gorgonia.WithL2Reg(0.000001))
@@ -56,7 +49,6 @@ func main() {
 		if cost, err = Train(i, m, solver, examples); err != nil {
 			log.Fatalf("Error while training during iteration %d: %+v", i, err)
 		}
-		shuffleExamples(examples)
 
 		acc, f1, con, err := checkAcc(m, validates)
 		if err != nil {
@@ -67,7 +59,7 @@ func main() {
 		if i%10 == 0 || i < 10 {
 			fmt.Printf("%+v\n", con)
 		}
-
+		shuffleExamples(examples)
 	}
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)

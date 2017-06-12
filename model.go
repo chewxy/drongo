@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-var hiddenSizes = []int{100}
+var hiddenSizes = []int{100, 30}
 
 type Model struct {
 	// dictionaries and the like
@@ -21,12 +21,14 @@ type Model struct {
 	g   *ExprGraph
 	t   tensor.Dtype
 	emb *Node   // (n, d) matrix. n = vocabulary size; d = dims
-	l0  *Banana // (d, 2d) matrices. one layer GRU; 2d = 2x d
+	l0  *Banana // (d, h0) matrices. First layer GRU
+	l1  *Banana // (h0, h1) matrices. Second layer GRU
 	a   *Attn   // (d, d) matrix. attention layer:
 	p   *Node   // (cat, d) matrixweights for softmax
 
 	// dummy
-	prev *Node
+	prev0 *Node
+	prev1 *Node
 }
 
 func NewModel(embShape tensor.Shape, t tensor.Dtype, q, cats int) *Model {
@@ -35,20 +37,24 @@ func NewModel(embShape tensor.Shape, t tensor.Dtype, q, cats int) *Model {
 	g := NewGraph()
 	emb := NewMatrix(g, t, WithShape(embShape...), WithName("WordEmbedding"))
 	l0 := NewGRU("gru-0", g, d, hiddenSizes[0], t)
-	attn := NewAttn("attention", g, tensor.Shape{hiddenSizes[0], hiddenSizes[0]}, t)
-	p := NewMatrix(g, t, WithShape(cats, hiddenSizes[0]), WithInit(GlorotU(1)), WithName("FinalLayer"))
+	l1 := NewGRU("gru-1", g, hiddenSizes[0], hiddenSizes[1], t)
+	attn := NewAttn("attention", g, tensor.Shape{hiddenSizes[1], hiddenSizes[1]}, t)
+	p := NewMatrix(g, t, WithShape(cats, hiddenSizes[1]), WithInit(GlorotU(1)), WithName("FinalLayer"))
 
-	prev := NewVector(g, t, WithShape(hiddenSizes[0]), WithInit(Zeroes()), WithName("DummyPrev"))
+	prev0 := NewVector(g, t, WithShape(hiddenSizes[0]), WithInit(Zeroes()), WithName("DummyPrev0"))
+	prev1 := NewVector(g, t, WithShape(hiddenSizes[1]), WithInit(Zeroes()), WithName("DummyPrev1"))
 
 	return &Model{
 		g:   g,
 		t:   t,
 		emb: emb,
 		l0:  l0,
+		l1:  l1,
 		a:   attn,
 		p:   p,
 
-		prev: prev,
+		prev0: prev0,
+		prev1: prev1,
 	}
 }
 
@@ -70,17 +76,29 @@ func (m *Model) WordID(a *lingo.Annotation) int {
 	return id
 }
 
-func (m *Model) OneWord(wordID int, prev *Node) (h, e *Node, err error) {
-	if prev == nil {
-		prev = m.prev
+func (m *Model) OneWord(wordID int, prev0, prev1 *Node) (h0, h1, e *Node, err error) {
+	if prev0 == nil {
+		prev0 = m.prev0
+	}
+	if prev1 == nil {
+		prev1 = m.prev1
 	}
 
 	input := Must(Slice(m.emb, S(wordID)))
-	if h, err = m.l0.Activate(input, prev); err != nil {
+	if h0, err = m.l0.Activate(input, prev0); err != nil {
 		return
 	}
 
-	if e, err = m.a.Exp(h); err != nil {
+	var dropped *Node
+	if dropped, err = Dropout(h0, 0.5); err != nil {
+		return
+	}
+
+	if h1, err = m.l1.Activate(dropped, prev1); err != nil {
+		return
+	}
+
+	if e, err = m.a.Exp(h1); err != nil {
 		return
 	}
 	return
@@ -91,18 +109,19 @@ func (m *Model) Fwd(s lingo.AnnotatedSentence) (prob *Node, err error) {
 	exps := make(Nodes, 0, len(s))
 	var runningSum *Node
 
-	var prev *Node
+	var prev0, prev1 *Node
 	for i, a := range s[1:] {
 		if i == 0 {
-			prev = m.prev
+			prev0 = m.prev0
+			prev1 = m.prev1
 		}
 
-		var h, e *Node
-		if h, e, err = m.OneWord(m.WordID(a), prev); err != nil {
+		var h0, h1, e *Node
+		if h0, h1, e, err = m.OneWord(m.WordID(a), prev0, prev1); err != nil {
 			return
 		}
 
-		hiddens = append(hiddens, h)
+		hiddens = append(hiddens, h1)
 		exps = append(exps, e)
 		if runningSum == nil {
 			runningSum = e
@@ -111,7 +130,8 @@ func (m *Model) Fwd(s lingo.AnnotatedSentence) (prob *Node, err error) {
 				return
 			}
 		}
-		prev = h
+		prev0 = h0
+		prev1 = h1
 	}
 
 	// build context nodes
