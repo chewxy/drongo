@@ -160,7 +160,7 @@ func NewAttn(name string, g *ExprGraph, shape tensor.Shape, t tensor.Dtype) *Att
 	return &Attn{
 		g:  g,
 		Fn: Tanh,
-		w:  NewMatrix(g, t, WithShape(shape...), WithInit(GlorotN(1)), WithName(fmt.Sprintf("%s.w", name))),
+		w:  NewMatrix(g, t, WithShape(shape...), WithInit(GlorotU(1)), WithName(fmt.Sprintf("%s.w", name))),
 	}
 }
 

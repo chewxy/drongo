@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -55,18 +56,23 @@ func main() {
 	m.SetEmbed(emb)
 	solver := gorgonia.NewAdaGradSolver(gorgonia.WithClip(3.0), gorgonia.WithL2Reg(0.000001))
 	for i := 0; i < 200; i++ {
-		if err := Train(i, m, solver, trainingSet); err != nil {
+		var cost float64
+		var err error
+		if cost, err = Train(i, m, solver, trainingSet); err != nil {
 			log.Fatalf("Error while training during iteration %d: %+v", i, err)
 		}
 		shuffleExamples(trainingSet)
 
-		if i%10 == 0 {
-			acc, err := checkAcc(m, validateSet)
-			if err != nil {
-				log.Fatal(err)
-			}
-			log.Printf("Epoch %d. Accuracy: %f | %v \n", i, acc, len(validateSet))
+		acc, f1, con, err := checkAcc(m, validateSet)
+		if err != nil {
+			log.Fatal(err)
 		}
+		log.Printf("%d | %f | %f | %f\n", i, cost, acc, f1)
+
+		if i%10 == 0 || i < 10 {
+			fmt.Printf("%+v\n", con)
+		}
+
 	}
 	if *memprofile != "" {
 		f, err := os.Create(*memprofile)
@@ -83,7 +89,7 @@ func main() {
 
 }
 
-func Train(epoch int, m *Model, solver gorgonia.Solver, trainingSet []example) (err error) {
+func Train(epoch int, m *Model, solver gorgonia.Solver, trainingSet []example) (avgCost float64, err error) {
 	costs := make([]float64, len(trainingSet))
 	for i, ex := range trainingSet {
 		var cost float64
@@ -92,11 +98,13 @@ func Train(epoch int, m *Model, solver gorgonia.Solver, trainingSet []example) (
 		}
 		costs[i] = cost
 	}
-	log.Printf("Epoch %d. Avg Cost %f", epoch, averageCosts(costs))
-	return nil
+	return averageCosts(costs), nil
 }
 
-func checkAcc(m *Model, validationset []example) (acc float64, err error) {
+func checkAcc(m *Model, validationset []example) (acc, f1 float64, confusion tensor.Tensor, err error) {
+	// row == pred, col == actual
+	confusion = tensor.New(tensor.Of(tensor.Float64), tensor.WithShape(int(MAXTARGETS), int(MAXTARGETS)))
+
 	var correct float64
 	for _, ex := range validationset {
 		var class Target
@@ -106,8 +114,35 @@ func checkAcc(m *Model, validationset []example) (acc float64, err error) {
 		if class == ex.target {
 			correct++
 		}
+
+		var s tensor.Tensor
+		if s, err = confusion.Slice(gorgonia.S(int(class))); err != nil {
+			return
+		}
+		s.Data().([]float64)[int(ex.target)] += 1
 	}
-	return correct / float64(len(validationset)), nil
+
+	var sumF1s float64
+	sumClasses0, _ := tensor.Sum(confusion, 0)
+	sumClasses1, _ := tensor.Sum(confusion, 1)
+	for i := Neutral; i < MAXTARGETS; i++ {
+		truePosI, _ := confusion.At(int(i), int(i))
+		sum1I, _ := sumClasses1.At(int(i))
+
+		truePos := truePosI.(float64)
+		sum1 := sum1I.(float64)
+		prec := truePos / (sum1 + 1e-8)
+
+		sum0I, _ := sumClasses0.At(int(i))
+		sum0 := sum0I.(float64)
+		recall := truePos / (sum0 + 1e-8)
+
+		f1 := 2 * (prec * recall) / (prec + recall)
+		sumF1s += f1
+	}
+	f1 = sumF1s / float64(MAXTARGETS)
+	acc = correct / float64(len(validationset))
+	return
 }
 
 func shuffleExamples(a []example) {

@@ -36,7 +36,7 @@ func NewModel(embShape tensor.Shape, t tensor.Dtype, q, cats int) *Model {
 	emb := NewMatrix(g, t, WithShape(embShape...), WithName("WordEmbedding"))
 	l0 := NewGRU("gru-0", g, d, hiddenSizes[0], t)
 	attn := NewAttn("attention", g, tensor.Shape{hiddenSizes[0], hiddenSizes[0]}, t)
-	p := NewMatrix(g, t, WithShape(cats, hiddenSizes[0]), WithInit(GlorotN(1)), WithName("FinalLayer"))
+	p := NewMatrix(g, t, WithShape(cats, hiddenSizes[0]), WithInit(GlorotU(1)), WithName("FinalLayer"))
 
 	prev := NewVector(g, t, WithShape(hiddenSizes[0]), WithInit(Zeroes()), WithName("DummyPrev"))
 
