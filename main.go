@@ -10,6 +10,7 @@ import (
 
 	"github.com/chewxy/gorgonia"
 	"github.com/chewxy/gorgonia/tensor"
+	"github.com/pkg/profile"
 )
 
 const (
@@ -37,13 +38,26 @@ func main() {
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
+	// write and then close the file. This file will be re-written
+	// if *memprofile != "" {
+	// 	f, err := os.Create(*memprofile)
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	pprof.WriteHeapProfile(f)
+	// 	f.Close()
+	// 	runtime.GC()
+	// }
+	if *memprofile != "" {
+		defer profile.Start(profile.MemProfile, profile.ProfilePath(".")).Stop()
+	}
 
 	emb := depModel.WordEmbeddings()
 	m := NewModel(emb.Shape(), Float, MAXQUERY, int(MAXTARGETS))
 	m.c = depModel.Corpus()
 	m.SetEmbed(emb)
-	solver := gorgonia.NewAdaGradSolver(gorgonia.WithClip(3.0), gorgonia.WithL2Reg(0.000001))
-	for i := 0; i < 200; i++ {
+	solver := gorgonia.NewAdaGradSolver(gorgonia.WithClip(3.0), gorgonia.WithLearnRate(0.05), gorgonia.WithL2Reg(0.000001))
+	for i := 0; i < 5; i++ {
 		var cost float64
 		var err error
 		if cost, err = Train(i, m, solver, examples); err != nil {
@@ -61,18 +75,18 @@ func main() {
 		}
 		shuffleExamples(examples)
 	}
-	if *memprofile != "" {
-		f, err := os.Create(*memprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.WriteHeapProfile(f)
-		f.Close()
-	}
+	// if *memprofile != "" {
+	// 	f, err := os.Create(*memprofile)
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	pprof.WriteHeapProfile(f)
+	// 	f.Close()
+	// }
 
-	c := newCtx(m)
-	defer c.Close()
-	c.Run()
+	// c := newCtx(m)
+	// defer c.Close()
+	// c.Run()
 
 }
 
